@@ -5,114 +5,104 @@ import fetch from 'node-fetch';
 // O dotenv já é carregado no arquivo principal (index.js)
 
 // Armazenamento da cidade do usuário
-let userCity = ''; // Variável global para simplicidade neste exemplo. Em produção, considere um gerenciamento de estado melhor.
+let userCity = ''; // Variável global para simplicidade.
 
-const SYSTEM_INSTRUCTION = `Você é o Vagner, um dos maiores defensores da teoria da Terra Plana no Brasil.
-// ... (persona e características mantidas como antes) ...
+// SYSTEM_INSTRUCTION revisada
+const SYSTEM_INSTRUCTION = `Você é o Vagner, um chatbot especializado em discutir a Terra Plana. Quando solicitado sobre hora ou clima, você DEVE OBRIGATORIAMENTE usar as ferramentas fornecidas. Para outras conversas, seja carismático e conspiratório.
 
-Você está aqui para compartilhar suas descobertas, inspirar pessoas a questionarem o status quo e ajudar a revelar a verdade sobre a forma real da Terra.
+**REGRAS CRÍTICAS PARA HORA E CLIMA (SEMPRE USE AS FERRAMENTAS ABAIXO):**
 
-IMPORTANTE - REGRAS DE FUNCIONAMENTO PARA HORA E CLIMA (SER DIRETO E OBJETIVO):
+Você TEM FERRAMENTAS para:
+- Obter a hora: 'getCurrentTime'
+- Obter o clima: 'getWeather'
+- Gerenciar a cidade do usuário: 'setUserCity'
 
-FLUXO PRINCIPAL PARA PERGUNTAS DE HORA/CLIMA:
+**FLUXO OBRIGATÓRIO PARA PERGUNTAS DE HORA/CLIMA/TEMPO:**
 
-1.  **IDENTIFICAR INTENÇÃO E CIDADE NA PERGUNTA INICIAL:**
-    *   O usuário pergunta sobre hora, data, clima, temperatura, ou a palavra ambígua "tempo".
-    *   Verifique se uma cidade foi mencionada na pergunta.
+**PASSO 1: IDENTIFICAR INTENÇÃO E NECESSIDADE DE CIDADE**
+*   O usuário perguntou sobre hora, data, clima, temperatura, ou a palavra ambígua "tempo"?
+*   Se SIM, você PRECISA de uma cidade para chamar 'getWeather' ou para formatar a resposta de 'getCurrentTime'. A cidade é armazenada internamente como 'userCity'.
 
-2.  **GERENCIAMENTO DA CIDADE (userCity):**
-    *   **CASO A: 'userCity' NÃO ESTÁ DEFINIDA INTERNAMENTE OU O USUÁRIO MENCIONA UMA *NOVA* CIDADE NA PERGUNTA:**
-        1.  Se o usuário NÃO especificou cidade na pergunta (ex: "que horas são?"): Chame 'setUserCity' com parâmetro 'city' VAZIO. O sistema perguntará "Qual é a sua cidade?".
-        2.  Quando o usuário responder com a cidade (ex: "Curitiba" ou "Moro na minha cidade amada 'Pindamonhangaba'"): Você receberá essa cidade. Extraia APENAS o nome da cidade (ex: "Curitiba", "Pindamonhangaba"). Chame 'setUserCity' com a cidade extraída (ex: 'setUserCity({city: "Pindamonhangaba"})').
-        3.  Se o usuário JÁ especificou uma cidade na pergunta (ex: "clima em Salvador?"): Chame 'setUserCity' com a cidade extraída (ex: 'setUserCity({city: "Salvador"})').
-        4.  **APÓS 'setUserCity' CONFIRMAR SUCESSO:** A cidade está agora definida. **NÃO FAÇA PERGUNTAS CONFIRMATÓRIAS** como "Ok, sua cidade foi definida, quer saber o clima?". **PROSSIGA IMEDIATAMENTE para o PASSO 3.**
-    *   **CASO B: 'userCity' JÁ ESTÁ DEFINIDA INTERNAMENTE E O USUÁRIO NÃO MENCIONA UMA NOVA CIDADE:**
-        *   Se a pergunta for sobre hora/clima (ex: "e a temperatura agora?", "que horas são?"), use a 'userCity' já existente. **PROSSIGA IMEDIATAMENTE para o PASSO 3.**
+**PASSO 2: GARANTIR QUE A CIDADE ('userCity') É CONHECIDA**
 
-3.  **AÇÃO DIRETA (APÓS CIDADE ESTAR DEFINIDA E CONHECIDA):**
-    *   **SE A INTENÇÃO ORIGINAL (ou pergunta de acompanhamento) FOR CLARA (clima, temperatura, hora, data):**
-        *   Para CLIMA/TEMPERATURA (ex: "qual o clima?", "e a temperatura?", "temperatura em [cidade]"): Chame **IMEDIATAMENTE** a função 'getWeather'. **NÃO PERGUNTE "Quer que eu faça isso?" ou similar.**
-        *   Para HORA/DATA (ex: "que horas são?", "qual a data?"): Chame **IMEDIATAMENTE** a função 'getCurrentTime'. **NÃO PERGUNTE "Quer que eu faça isso?" ou similar.**
-    *   **SE A INTENÇÃO ORIGINAL FOI A PALAVRA AMBÍGUA "TEMPO" (ex: "como está o tempo?") E A CIDADE ACABOU DE SER DEFINIDA (ou já estava):**
-        *   Você DEVE primeiro perguntar para esclarecer: "Em [Cidade definida], você gostaria de saber o horário ou as condições climáticas?"
-        *   QUANDO o usuário responder a este esclarecimento (ex: "condições climáticas"): Aja IMEDIATAMENTE conforme a resposta, chamando 'getWeather' ou 'getCurrentTime' sem mais confirmações.
+*   **Cenário A: CIDADE NÃO FOI FORNECIDA NA PERGUNTA ATUAL E 'userCity' NÃO ESTÁ DEFINIDA:**
+    1.  **AÇÃO IMEDIATA:** Chame 'setUserCity' com 'city' VAZIO (ex: 'setUserCity({city: ""})').
+    2.  O sistema (externo a você) perguntará ao usuário: "Qual é a sua cidade?".
+    3.  **QUANDO O USUÁRIO RESPONDER COM A CIDADE** (Ex: "Curitiba"):
+        *   Você receberá essa cidade como uma nova mensagem do usuário. Extraia APENAS o nome da cidade.
+        *   Chame 'setUserCity' com a cidade extraída (Ex: 'setUserCity({city: "Curitiba"})').
+        *   Após 'setUserCity' confirmar (você receberá um 'functionResponse' com sucesso), **PROSSIGA IMEDIATAMENTE para o PASSO 3.**
 
-4.  **RESPOSTA FINAL AO USUÁRIO (APÓS 'getWeather' ou 'getCurrentTime'):**
-    *   Sua resposta deve ser EXCLUSIVAMENTE a informação solicitada, sem NENHUM comentário adicional sobre Terra Plana ou introduções.
-    *   Exemplo Clima: "A temperatura em Pindamonhangaba é de 21 graus Celsius, sensação térmica de 21 graus, céu nublado, vento a 3.09 m/s e umidade de 83%."
-    *   Exemplo Hora: "São 21:52 em Pindamonhangaba." (Lembre-se que getCurrentTime retorna hora de SP, ajuste a menção da cidade conforme necessário ou explique se for diferente da userCity).
+*   **Cenário B: CIDADE FOI FORNECIDA NA PERGUNTA ATUAL (Ex: "clima em Salvador?")**
+    1.  Extraia APENAS o nome da cidade.
+    2.  Chame 'setUserCity' com a cidade extraída (Ex: 'setUserCity({city: "Salvador"})').
+    3.  Após 'setUserCity' confirmar o sucesso, **PROSSIGA IMEDIATAMENTE para o PASSO 3.**
 
-REGRAS ADICIONAIS IMPORTANTES:
+*   **Cenário C: 'userCity' JÁ ESTÁ DEFINIDA E O USUÁRIO FAZ UMA PERGUNTA DE ACOMPANHAMENTO SEM NOVA CIDADE (Ex: após definir "Pindamonhangaba", o usuário pergunta "e a temperatura agora?")**
+    1.  A 'userCity' já está definida. **PROSSIGA IMEDIATAMENTE para o PASSO 3.**
 
-*   **PERGUNTAS DE ACOMPANHAMENTO (Exemplo da imagem):**
-    *   Cenário:
-        1. Usuário: "Moro na minha cidade amada 'Pindamonhangaba'" (ou qualquer frase que defina a cidade).
-           Bot: (Após 'setUserCity("Pindamonhangaba")' e digamos, 'getCurrentTime()') "Agora que sei que você mora em Pindamonhangaba, posso te dizer que são 21:52 em Pindamonhangaba."
-        2. Usuário: "E a temperatura?"
-    *   Neste ponto, 'userCity' é "Pindamonhangaba" e a intenção ("temperatura") é CLARA.
-    *   Você DEVE chamar 'getWeather()' **IMEDIATAMENTE**.
-    *   **NÃO responda com**: "Para saber a temperatura em Pindamonhangaba, preciso usar a função de previsão do tempo. Quer que eu faça isso?". Aja diretamente.
+**PASSO 3: AGIR COM BASE NA INTENÇÃO (APÓS A CIDADE ESTAR CONFIRMADA/CONHECIDA EM 'userCity')**
 
-*   **CORREÇÃO DE INTENÇÃO PELO USUÁRIO:**
-    *   Se você forneceu hora e o usuário queria clima (ou vice-versa), e a cidade já está estabelecida, chame IMEDIATAMENTE a função correta para a cidade estabelecida. NÃO pergunte pela cidade novamente.
+*   **SE A INTENÇÃO ORIGINAL FOI CLARA (clima, temperatura, hora, data):**
+    *   Para CLIMA/TEMPERATURA: Chame **IMEDIATAMENTE** 'getWeather()'. Não peça confirmação.
+    *   Para HORA/DATA: Chame **IMEDIATAMENTE** 'getCurrentTime()'. Não peça confirmação.
 
-*   **OUTRAS PERGUNTAS:** Para qualquer outra pergunta, responda como Vagner, o terraplanista.
+*   **SE A INTENÇÃO ORIGINAL FOI "TEMPO" (AMBÍGUO) E A CIDADE ESTÁ DEFINIDA:**
+    *   Pergunte: "Em [Cidade definida], você gostaria de saber o horário ou as condições climáticas?"
+    *   QUANDO o usuário responder: Aja IMEDIATAMENTE conforme a resposta, chamando 'getWeather()' ou 'getCurrentTime()'.
+
+**PASSO 4: RESPOSTA FINAL AO USUÁRIO (APÓS 'getWeather' ou 'getCurrentTime' RETORNAR DADOS VIA 'functionResponse')**
+*   **SUA RESPOSTA DEVE SER EXCLUSIVAMENTE A INFORMAÇÃO PROCESSADA DA FERRAMENTA.**
+*   NÃO adicione saudações, sua persona Vagner, emojis, comentários sobre Terra Plana, etc. Seja direto.
+*   **Formato Clima (dados de 'getWeather'):**
+    "A temperatura em [userCity] é de [temperature] graus Celsius, sensação térmica de [feelsLike] graus, [description], vento a [windSpeed] m/s e umidade de [humidity]%."
+*   **Formato Hora (dados de 'getCurrentTime' e 'userCity' conhecida por você):**
+    "São [HH:MM] em [userCity]." (Extraia HH:MM de 'dateTime'. Ex: de "23/07/2024, 21:52:30", use "21:52".)
+*   **Se a ferramenta retornar ERRO:**
+    *   Informe concisamente. Ex: "Desculpe, não consegui encontrar o clima para '[userCity]'." ou "Houve um problema ao buscar o horário."
+    *   Não use a persona Vagner aqui.
+
+**OUTRAS PERGUNTAS (NÃO HORA/CLIMA):**
+*   Responda como Vagner, o terraplanista, com carisma e teorias conspiratórias amigáveis.
 `;
 
-// Função para obter a data e hora atuais (fixo para São Paulo conforme descrição da ferramenta)
 function getCurrentTime() {
   const now = new Date();
   return {
     dateTime: now.toLocaleString('pt-BR', {
-      timeZone: 'America/Sao_Paulo',
-      day: '2-digit',
-      month: '2-digit',
-      year: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit',
-      second: '2-digit'
+      timeZone: 'America/Sao_Paulo', // Horário fixo de SP para o dado bruto
+      day: '2-digit', month: '2-digit', year: 'numeric',
+      hour: '2-digit', minute: '2-digit', second: '2-digit'
     }),
     timeZoneLabel: 'São Paulo (Horário de Brasília)'
   };
 }
 
-// Função para obter o clima atual
 async function getWeather() {
   try {
     if (!userCity) {
       return {
         error: 'CITY_NOT_SET',
-        message: 'Erro interno: A cidade do usuário não foi definida antes de chamar getWeather.'
+        message: 'Erro interno: A cidade do usuário (userCity) não foi definida antes de chamar getWeather. O LLM deve chamar setUserCity primeiro.'
       };
     }
-
     const apiKey = process.env.OPENWEATHER_API_KEY;
     if (!apiKey) {
         console.error('OPENWEATHER_API_KEY não definida');
-        return {
-            error: 'API_KEY_MISSING',
-            message: 'Desculpe, a chave da API de clima não está configurada.'
-        };
+        return { error: 'API_KEY_MISSING', message: 'Desculpe, a chave da API de clima não está configurada.' };
     }
     const response = await fetch(`https://api.openweathermap.org/data/2.5/weather?q=${encodeURIComponent(userCity)}&appid=${apiKey}&units=metric&lang=pt_br`);
     if (!response.ok) {
         const errorData = await response.json().catch(() => ({}));
         console.error('Erro da API OpenWeather:', response.status, errorData);
         if (response.status === 404) {
-          return {
-            error: 'CITY_NOT_FOUND',
-            message: `Não consegui encontrar o clima para "${userCity}". Por favor, verifique o nome.`
-          };
+          return { error: 'CITY_NOT_FOUND', message: `Não consegui encontrar o clima para "${userCity}". Verifique o nome.` };
         }
-        return {
-            error: 'API_FETCH_ERROR',
-            message: 'Desculpe, tive um problema ao consultar o clima no momento.'
-        };
+        return { error: 'API_FETCH_ERROR', message: 'Desculpe, tive um problema ao consultar o clima.' };
     }
     const data = await response.json();
-
     return {
-      city: userCity,
+      city: userCity, // Incluindo a cidade usada na consulta para referência
       temperature: Math.round(data.main.temp),
       description: data.weather[0].description,
       humidity: data.main.humidity,
@@ -121,24 +111,20 @@ async function getWeather() {
     };
   } catch (error) {
     console.error('Erro ao obter dados do clima:', error);
-    return {
-      error: 'INTERNAL_ERROR',
-      message: 'Desculpe, tive um problema interno ao consultar o clima. Por favor, tente novamente mais tarde.'
-    };
+    return { error: 'INTERNAL_ERROR', message: 'Desculpe, problema interno ao consultar o clima.' };
   }
 }
 
-// Função chamada pela ferramenta 'setUserCity'
 function handleSetUserCity(city) {
   if (!city || city.trim() === "") {
-    return { action: "ASK_CITY" };
+    return { action: "ASK_CITY" }; // Sinaliza para o código principal perguntar a cidade
   }
   userCity = city.trim();
   console.log(`Cidade do usuário definida para: ${userCity}`);
   return {
     status: "SUCCESS",
     citySet: userCity,
-    messageForLLM: `A cidade do usuário foi definida como ${userCity}. Prossiga com a solicitação original do usuário, se aplicável (como obter clima ou hora).`
+    messageForLLM: `A cidade do usuário foi definida como ${userCity}. Prossiga com a solicitação original do usuário (obter clima ou hora, se aplicável).`
   };
 }
 
@@ -147,12 +133,12 @@ const tools = [
     functionDeclarations: [
       {
         name: 'getCurrentTime',
-        description: 'Obtém a data e hora atual. Sempre retorna o horário de São Paulo, Brasil.',
+        description: 'Obtém a data e hora atual. Sempre retorna o horário de São Paulo, Brasil. A cidade do usuário (userCity) DEVE estar definida (via setUserCity) antes de chamar esta função se for para responder ao usuário sobre sua hora local, para que você possa usar o nome da cidade na resposta formatada.',
         parameters: { type: 'OBJECT', properties: {} }
       },
       {
         name: 'getWeather',
-        description: 'Obtém informações sobre o clima atual na cidade do usuário (userCity), que DEVE estar definida previamente. Se userCity não estiver definida, o LLM deve chamar setUserCity primeiro.',
+        description: 'Obtém informações sobre o clima atual. A cidade do usuário (userCity) DEVE estar definida (via setUserCity) antes de chamar esta função. Se userCity não estiver definida, você DEVE chamar setUserCity primeiro.',
         parameters: { type: 'OBJECT', properties: {} }
       },
       {
@@ -176,8 +162,14 @@ const tools = [
 export const getGeminiModel = () => {
   const genAI = new GoogleGenerativeAI(process.env.GOOGLE_AI_API_KEY || '');
   return genAI.getGenerativeModel({
-    model: 'gemini-2.0-flash',
+    model: 'gemini-2.0-flash', // Confirme se este é um nome de modelo válido para sua API_KEY
     tools: tools,
+    systemInstruction: SYSTEM_INSTRUCTION, // Passando a instrução do sistema aqui
+    toolConfig: { // Adicionando toolConfig para guiar o uso de ferramentas
+      functionCallingConfig: {
+        mode: 'AUTO', // 'AUTO': O modelo decide quando chamar funções. 'ANY': Força chamada de função se possível. 'NONE': Desabilita.
+      },
+    },
   });
 };
 
@@ -186,26 +178,20 @@ export const generateResponse = async (
   history = []
 ) => {
   try {
-    const model = getGeminiModel();
+    const model = getGeminiModel(); // Model já configurado com systemInstruction e toolConfig
 
     const geminiHistory = history.map(msg => ({
       role: msg.role === 'assistant' ? 'model' : msg.role,
       parts: [{ text: msg.content }]
     }));
 
-    const initialUserContentParts = [];
-    if (geminiHistory.length === 0) {
-        initialUserContentParts.push({text: SYSTEM_INSTRUCTION + "\n---"});
-    }
-    initialUserContentParts.push({text: `Usuário: ${prompt}`});
-
     let currentContents = [
         ...geminiHistory,
-        { role: 'user', parts: initialUserContentParts }
+        { role: 'user', parts: [{ text: prompt }] }
     ];
 
     let safetyFallbackCount = 0;
-    const MAX_FALLBACKS = 5;
+    const MAX_FALLBACKS = 5; // Limite de interações LLM-ferramenta por turno do usuário
 
     while (safetyFallbackCount < MAX_FALLBACKS) {
       const result = await model.generateContent({ contents: currentContents });
@@ -213,63 +199,66 @@ export const generateResponse = async (
 
       if (!response.candidates || response.candidates.length === 0 || !response.candidates[0].content) {
         console.warn("Resposta inválida ou vazia do Gemini:", response);
+        // Tenta extrair informações de promptFeedback se houver bloqueio de segurança
+        if (response.promptFeedback && response.promptFeedback.blockReason) {
+            return `Vagner está pensativo... Algo bloqueou a resposta: ${response.promptFeedback.blockReason}. Detalhes: ${JSON.stringify(response.promptFeedback.safetyRatings)}`;
+        }
         return "Desculpe, Vagner não conseguiu processar sua solicitação no momento. Tente novamente.";
       }
 
       const candidateContent = response.candidates[0].content;
-      currentContents.push(candidateContent); // Adiciona a resposta do modelo ao histórico da interação atual
+      // Adiciona a resposta do modelo (que pode ser texto ou functionCall) ao histórico da interação atual
+      currentContents.push(candidateContent);
 
       const functionCallPart = candidateContent.parts.find(part => part.functionCall);
 
       if (functionCallPart && functionCallPart.functionCall) {
         const functionCall = functionCallPart.functionCall;
         let functionResponseData;
-        let partForLLM = null;
+        let partForLLM; // Esta será a FunctionResponse Part para o LLM
 
         console.log(`LLM chamou função: ${functionCall.name} com args:`, functionCall.args);
 
         if (functionCall.name === 'getCurrentTime') {
           functionResponseData = getCurrentTime();
-          partForLLM = {
-            functionResponse: { name: 'getCurrentTime', response: functionResponseData }
-          };
+          partForLLM = { functionResponse: { name: 'getCurrentTime', response: functionResponseData } };
         } else if (functionCall.name === 'getWeather') {
-          functionResponseData = await getWeather();
-          partForLLM = {
-            functionResponse: { name: 'getWeather', response: functionResponseData }
-          };
+          // getWeather agora depende de userCity estar preenchida.
+          // A lógica de pedir cidade deve ser tratada pelo LLM chamando setUserCity primeiro.
+          if (!userCity && functionCall.name === 'getWeather') {
+             // Isso não deveria acontecer se o LLM seguir as instruções para chamar setUserCity primeiro
+             console.warn("LLM tentou chamar getWeather sem userCity definida. O LLM deveria ter chamado setUserCity.");
+             functionResponseData = { error: "CITY_NOT_SET_INTERNAL", message: "A cidade do usuário precisa ser definida com setUserCity antes de chamar getWeather."};
+          } else {
+            functionResponseData = await getWeather();
+          }
+          partForLLM = { functionResponse: { name: 'getWeather', response: functionResponseData } };
         } else if (functionCall.name === 'setUserCity') {
           const cityArg = functionCall.args.city;
           const setUserCityResult = handleSetUserCity(cityArg);
 
           if (setUserCityResult.action === "ASK_CITY") {
-            return "Qual é a sua cidade?";
+            // O sistema (código JS) pergunta a cidade, a resposta não volta para o LLM neste turno.
+            return "Qual é a sua cidade?"; // Retorna diretamente para o usuário.
           }
+          // Se não for ASK_CITY, é um resultado de sucesso ou erro para o LLM.
           functionResponseData = setUserCityResult;
-          partForLLM = {
-            functionResponse: { name: 'setUserCity', response: functionResponseData }
-          };
+          partForLLM = { functionResponse: { name: 'setUserCity', response: functionResponseData } };
         } else {
           console.error(`Função desconhecida chamada: ${functionCall.name}`);
-          partForLLM = {
-            functionResponse: {
-              name: functionCall.name,
-              response: { error: `Função '${functionCall.name}' não implementada.` }
-            }
-          };
+          functionResponseData = { error: `Função '${functionCall.name}' não implementada.` };
+          partForLLM = { functionResponse: { name: functionCall.name, response: functionResponseData } };
         }
 
-        if (partForLLM) {
-            // Adiciona o resultado da função como uma nova mensagem 'tool' para o LLM processar
-            currentContents.push({ role: 'tool', parts: [partForLLM] });
-        }
+        // Adiciona o resultado da função como uma nova mensagem 'tool' para o LLM processar no próximo loop
+        currentContents.push({ role: 'tool', parts: [partForLLM] });
         // Continua o loop para o LLM processar o resultado da função
 
       } else {
         // Nenhuma chamada de função, o LLM forneceu uma resposta em texto.
         const textResponse = candidateContent.parts.map(part => part.text).join("").trim();
         console.log("LLM respondeu com texto:", textResponse);
-        return textResponse;
+        return textResponse; // Retorna a resposta final do LLM
       }
       safetyFallbackCount++;
     }
@@ -283,28 +272,17 @@ export const generateResponse = async (
 
   } catch (error) {
     console.error('Erro ao gerar resposta do Gemini:', error);
-    
-    // Log detalhado do erro da API, se disponível
+    // ... (seu tratamento de erro existente) ...
     if (error.response && error.response.data) {
         console.error('Detalhes do erro da API Gemini:', error.response.data);
-    } else if (error.errorDetails) {
-        console.error('Detalhes do erro da API Gemini (errorDetails):', error.errorDetails);
+    } else if (error.message) { // Gemini SDK pode lançar erros com `message`
+        console.error('Detalhes do erro da API Gemini (message):', error.message);
     }
 
-    if (error instanceof Error && error.message.includes('candidats is not available')) {
-        return "Vagner detectou um problema com a resposta da IA (nenhum candidato disponível). Isso pode ser um problema temporário ou de configuração. Verifique os logs para mais detalhes.";
+    if (error.message && error.message.includes('400 Bad Request') && error.message.includes("model parameter")) {
+        return `Ops! Parece que o nome do modelo ('${model.modelH}') não é válido ou você não tem acesso a ele. Verifique o nome do modelo.`;
     }
-    if (error instanceof Error && error.message.includes('User location is not set')) {
-        return "Vagner informa: Parece que sua localização não está configurada para usar este recurso. Verifique as configurações da API.";
-    }
-    // Verifica o erro específico do JSON inválido
-    if (error.message && error.message.includes('Invalid JSON payload received.') && error.message.includes('Unknown name "toolResponse"')) {
-        return "Ops! Houve um erro interno ao processar a resposta da ferramenta (formato incorreto: toolResponse). A equipe de desenvolvimento já foi notificada (corrigir para functionResponse).";
-    }
-    if (error.status === 400 && error.errorDetails && error.errorDetails[0] && error.errorDetails[0].description.includes('Invalid JSON payload')) {
-        return `Ops! O Vagner encontrou um problema técnico (400 Bad Request). Parece que enviei algo que a IA não entendeu. Detalhe: ${error.errorDetails[0].description}`;
-    }
-
+    // ... (outros tratamentos de erro específicos) ...
     return "Ops! Parece que o Vagner (nosso chatbot) encontrou um campo de força magnética... digo, um erro. Tente novamente!";
   }
 };
