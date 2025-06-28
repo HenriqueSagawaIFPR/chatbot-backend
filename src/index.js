@@ -1,15 +1,22 @@
 import express from 'express';
 import cors from 'cors';
 import dotenv from 'dotenv';
-import connectDB from './config/db.js'; 
+import connectDB, { connectLogDB } from './config/db.js'; 
 import Chat from './models/Chat.js'; 
 import { generateResponse } from './lib/gemini.js';
+import logService from './services/logService.js';
 
 // Carrega as variáveis de ambiente
 dotenv.config();
 
-// Conecta ao MongoDB
+// Conecta ao MongoDB principal
 connectDB();
+
+// Conecta ao MongoDB de logs
+connectLogDB().then(() => {
+  // Inicializa o serviço de log após a conexão
+  logService.initializeLogModel();
+});
 
 // Cria o servidor Express
 const app = express();
@@ -56,8 +63,11 @@ app.get('/api/chats/:id', async (req, res) => {
 
 // Rota POST /api/chat - Processar mensagem (criar novo chat ou adicionar a existente)
 app.post('/api/chat', async (req, res) => {
+  const startTime = Date.now();
+  let chatId = null;
+  
   try {
-    const { message, chatId } = req.body;
+    const { message, chatId: existingChatId } = req.body;
 
     if (!message) {
       return res.status(400).json({ error: 'Mensagem é obrigatória' });
@@ -68,9 +78,9 @@ app.post('/api/chat', async (req, res) => {
 
     const userMessage = { role: 'user', content: message };
 
-    if (chatId) {
+    if (existingChatId) {
       // Encontrar chat existente
-      chat = await Chat.findById(chatId);
+      chat = await Chat.findById(existingChatId);
       if (!chat) {
         return res.status(404).json({ error: 'Chat não encontrado' });
       }
@@ -78,7 +88,7 @@ app.post('/api/chat', async (req, res) => {
       chat.messages.push(userMessage);
       // Preparar histórico para Gemini (apenas content e role)
       historyForGemini = chat.messages.map(msg => ({ role: msg.role, content: msg.content }));
-
+      chatId = existingChatId;
     } else {
       // Criar novo chat
       const title = message.substring(0, 30) + (message.length > 30 ? '...' : ''); // Título inicial
@@ -90,6 +100,10 @@ app.post('/api/chat', async (req, res) => {
       historyForGemini = [userMessage];
     }
 
+    // Log da mensagem do usuário
+    const requestInfo = logService.extractRequestInfo(req);
+    await logService.logUserMessage(chatId, message, requestInfo);
+
     // Chamar Gemini (removendo a última mensagem do usuário do histórico passado, pois ela é o 'message' atual)
     const responseText = await generateResponse(message, historyForGemini.slice(0, -1)); 
 
@@ -98,13 +112,29 @@ app.post('/api/chat', async (req, res) => {
 
     // Salvar o chat (novo ou atualizado)
     await chat.save();
+    
+    // Atualizar chatId se for um novo chat
+    if (!chatId) {
+      chatId = chat._id;
+    }
+
+    // Calcular tempo de processamento
+    const processingTime = Date.now() - startTime;
+
+    // Log da resposta do bot
+    await logService.logBotResponse(chatId, message, responseText, processingTime, requestInfo);
 
     // Retorna a resposta do bot e o ID do chat
     return res.json({ response: responseText, chatId: chat._id });
 
   } catch (error) {
     console.error('Erro na API /api/chat:', error);
-     // Verifica se o erro é devido a um ID inválido do MongoDB ao buscar
+    
+    // Log do erro
+    const requestInfo = logService.extractRequestInfo(req);
+    await logService.logError(chatId, message, error, requestInfo);
+    
+    // Verifica se o erro é devido a um ID inválido do MongoDB ao buscar
     if (error.kind === 'ObjectId') {
         return res.status(400).json({ error: 'ID do chat inválido fornecido' });
     }
@@ -112,6 +142,30 @@ app.post('/api/chat', async (req, res) => {
   }
 });
 
+// Rota para visualizar logs (apenas para desenvolvimento/debug)
+app.get('/api/logs', async (req, res) => {
+  try {
+    const logConnection = logService.getLogConnection();
+    if (!logConnection) {
+      return res.status(500).json({ error: 'Conexão de log não disponível' });
+    }
+
+    const LogModel = logService.getLogModel();
+    if (!LogModel) {
+      return res.status(500).json({ error: 'Modelo de log não disponível' });
+    }
+
+    const logs = await LogModel.find()
+      .sort({ timestamp: -1 })
+      .limit(100)
+      .select('botName userName message response messageType timestamp processingTime status');
+
+    res.json(logs);
+  } catch (error) {
+    console.error('Erro ao buscar logs:', error);
+    res.status(500).json({ error: 'Erro ao buscar logs' });
+  }
+});
 
 // Inicia o servidor
 app.listen(PORT, () => {
