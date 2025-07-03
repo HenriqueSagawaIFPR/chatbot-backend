@@ -20,21 +20,28 @@ const connectDB = async () => {
   }
 };
 
-// Conexão secundária para logs
+// Conexão secundária para logs (MongoDB Atlas compartilhado)
 let logConnection = null;
 
 const connectLogDB = async () => {
   try {
     if (!logConnection) {
-      logConnection = await mongoose.createConnection(process.env.MONGODB_LOG_URI, {
-        // Opções do Mongoose para evitar warnings de depreciação
+      const logUri = process.env.MONGO_URI || process.env.MONGODB_LOG_URI;
+      if (!logUri) {
+        console.error('String de conexão MONGO_URI não encontrada nas variáveis de ambiente');
+        return null;
+      }
+      logConnection = mongoose.createConnection(logUri, {});
+      logConnection.on('connected', () => {
+        console.log('MongoDB Atlas Compartilhado Conectado!');
       });
-      console.log(`MongoDB Log Conectado: ${logConnection.connection.host}`);
+      logConnection.on('error', (err) => {
+        console.error('Erro na conexão do MongoDB Atlas Compartilhado:', err);
+      });
     }
     return logConnection;
   } catch (error) {
-    console.error(`Erro ao conectar ao MongoDB Log: ${error.message}`);
-    // Não sai do processo, apenas loga o erro
+    console.error(`Erro ao conectar ao MongoDB Atlas Compartilhado:`, error);
     return null;
   }
 };

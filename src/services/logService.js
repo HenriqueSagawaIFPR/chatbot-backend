@@ -1,9 +1,10 @@
-import createLogModel from '../models/Log.js';
+import createLogModel, { createUserLogAccessModel } from '../models/Log.js';
 import { getLogConnection } from '../config/db.js';
 
 class LogService {
   constructor() {
     this.logModel = null;
+    this.userLogAccessModel = null;
     this.initializeLogModel();
   }
 
@@ -12,6 +13,7 @@ class LogService {
       const logConnection = getLogConnection();
       if (logConnection) {
         this.logModel = createLogModel(logConnection);
+        this.userLogAccessModel = createUserLogAccessModel(logConnection);
       }
     } catch (error) {
       console.error('Erro ao inicializar modelo de log:', error);
@@ -26,6 +28,11 @@ class LogService {
   // Método para obter o modelo de log
   getLogModel() {
     return this.logModel;
+  }
+
+  // Método para obter o modelo de log de acesso
+  getUserLogAccessModel() {
+    return this.userLogAccessModel;
   }
 
   async logUserMessage(chatId, message, requestInfo = {}) {
@@ -108,6 +115,35 @@ class LogService {
       console.log(`Log de erro salvo: ${logEntry._id}`);
     } catch (logError) {
       console.error('Erro ao salvar log de erro:', logError);
+    }
+  }
+
+  // NOVO: Método para registrar logs de acesso conforme especificação da atividade B2.P1.A7
+  async logUserAccess(ip, acao, nomeBot = 'Vagner Terraplanista') {
+    try {
+      if (!this.userLogAccessModel) {
+        console.warn('Modelo de log de acesso não disponível');
+        return;
+      }
+  
+      const agora = new Date();
+      const dataFormatada = agora.toISOString().split('T')[0]; // YYYY-MM-DD
+      const horaFormatada = agora.toTimeString().split(' ')[0]; // HH:MM:SS
+  
+      const logEntry = new this.userLogAccessModel({
+        col_data: dataFormatada,
+        col_hora: horaFormatada,
+        col_IP: ip,
+        col_nome_bot: nomeBot,
+        col_acao: acao
+      });
+  
+      await logEntry.save();
+      console.log(`Log de acesso do usuário salvo: ${logEntry._id}`);
+      return logEntry;
+    } catch (error) {
+      console.error('Erro ao salvar log de acesso do usuário:', error);
+      throw error;
     }
   }
 
