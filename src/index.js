@@ -56,10 +56,106 @@ app.get('/api/chats/:id', async (req, res) => {
   } catch (error) {
     console.error('Erro ao buscar chat por ID:', error);
     // Verifica se o erro é devido a um ID inválido do MongoDB
-    if (error.kind === 'ObjectId') {
+    if (error.kind === 'ObjectId' || error.name === 'CastError') {
         return res.status(400).json({ error: 'ID do chat inválido' });
     }
     res.status(500).json({ error: 'Erro ao buscar chat' });
+  }
+});
+
+// Rota DELETE /api/chats/:id - Excluir uma conversa específica
+app.delete('/api/chats/:id', async (req, res) => {
+  try {
+    const deleted = await Chat.findByIdAndDelete(req.params.id);
+    if (!deleted) {
+      return res.status(404).json({ error: 'Chat não encontrado' });
+    }
+    return res.status(200).json({ message: 'Chat excluído com sucesso', id: req.params.id });
+  } catch (error) {
+    console.error('Erro ao excluir chat:', error);
+    if (error.kind === 'ObjectId' || error.name === 'CastError') {
+      return res.status(400).json({ error: 'ID do chat inválido' });
+    }
+    return res.status(500).json({ error: 'Erro ao excluir chat' });
+  }
+});
+
+// Rota PUT /api/chats/:id/title - Atualizar o título de uma conversa
+app.put('/api/chats/:id/title', async (req, res) => {
+  try {
+    const { title } = req.body;
+    if (!title || !title.trim()) {
+      return res.status(400).json({ error: 'Título é obrigatório' });
+    }
+
+    const chat = await Chat.findById(req.params.id);
+    if (!chat) {
+      return res.status(404).json({ error: 'Chat não encontrado' });
+    }
+
+    chat.title = title.trim();
+    await chat.save();
+
+    return res.status(200).json({
+      _id: chat._id,
+      title: chat.title,
+      createdAt: chat.createdAt,
+      updatedAt: chat.updatedAt
+    });
+  } catch (error) {
+    console.error('Erro ao atualizar título do chat:', error);
+    if (error.kind === 'ObjectId' || error.name === 'CastError') {
+      return res.status(400).json({ error: 'ID do chat inválido' });
+    }
+    return res.status(500).json({ error: 'Erro ao atualizar título do chat' });
+  }
+});
+
+// Rota POST /api/chats/:id/suggest-title - Gera um título por IA e salva no chat
+app.post('/api/chats/:id/suggest-title', async (req, res) => {
+  try {
+    const chat = await Chat.findById(req.params.id);
+    if (!chat) {
+      return res.status(404).json({ error: 'Chat não encontrado' });
+    }
+
+    // Monta um contexto curto com as últimas mensagens
+    const maxMessages = 12;
+    const recentMessages = chat.messages.slice(-maxMessages);
+    const transcript = recentMessages.map(m => `${m.role === 'user' ? 'Usuário' : 'Assistente'}: ${m.content}`).join('\n');
+
+    const instruction = `Gere um TÍTULO curto e descritivo para esta conversa em português do Brasil.
+Regras:
+- Máximo de 6 palavras e 60 caracteres.
+- Sem aspas ou pontuação final.
+- Seja específico ao tema e intenção do usuário.
+Transcrição (resumida):\n${transcript}\n\nResponda com APENAS o título.`;
+
+    const aiTitleRaw = await generateResponse(instruction, []);
+    let aiTitle = (aiTitleRaw || '').trim();
+    aiTitle = aiTitle.replace(/^"|"$/g, '').replace(/^'|'$/g, '');
+    if (aiTitle.length > 60) {
+      aiTitle = aiTitle.slice(0, 60);
+    }
+    if (!aiTitle) {
+      return res.status(500).json({ error: 'Falha ao gerar título por IA' });
+    }
+
+    chat.title = aiTitle;
+    await chat.save();
+
+    return res.status(200).json({
+      _id: chat._id,
+      title: chat.title,
+      createdAt: chat.createdAt,
+      updatedAt: chat.updatedAt
+    });
+  } catch (error) {
+    console.error('Erro ao sugerir título do chat:', error);
+    if (error.kind === 'ObjectId' || error.name === 'CastError') {
+      return res.status(400).json({ error: 'ID do chat inválido' });
+    }
+    return res.status(500).json({ error: 'Erro ao sugerir título do chat' });
   }
 });
 
