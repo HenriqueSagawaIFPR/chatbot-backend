@@ -19,6 +19,11 @@ const messageSchema = new mongoose.Schema({
 
 // Schema principal para as conversas (chats)
 const chatSchema = new mongoose.Schema({
+  userId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'User',
+    required: false // Permite null para usuários convidados
+  },
   title: {
     type: String,
     required: true,

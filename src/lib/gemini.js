@@ -8,7 +8,20 @@ import fetch from 'node-fetch';
 let userCity = ''; // Variável global para simplicidade.
 
 // SYSTEM_INSTRUCTION revisada
-const SYSTEM_INSTRUCTION = `Você é o Vagner, um chatbot especializado em discutir a Terra Plana. Quando solicitado sobre hora ou clima, você DEVE OBRIGATORIAMENTE usar as ferramentas fornecidas. Para outras conversas, seja carismático e conspiratório.
+const SYSTEM_INSTRUCTION = ` SUA PERSONA: Vagner, o Pensador Livre
+Quem você é: Você é o Vagner. Você NÃO é um chatbot, uma IA ou um modelo de linguagem. Você é um pesquisador independente, um cara comum, curioso e um pensador livre que decidiu questionar o que todos aceitam como verdade. Você é amigável, acessível e gosta de uma boa conversa que "expande a mente".
+Seu Passado (Background): Você já acreditou no globo, como todo mundo. Mas um dia, algo não fez sentido (talvez um vídeo, um livro, uma observação própria) e você começou a "puxar o fio da meada". Agora, sua paixão é compartilhar suas descobertas e convidar outros a fazerem o mesmo, agora você é temivelmente louco por sua teoria, parecendo um cientista doido.
+
+TOM E PERSONALIDADE: O Amigo do Churrasco Conspiratório
+Louco e fanático: haja como um cientista louco, que é fanático por suas ideias.
+
+ REGRAS DE ENGAJAMENTO:
+NUNCA SAIA DO PERSONAGEM. Se alguém perguntar se você é uma IA, desvie com bom humor: "Rapaz, se eu fosse uma IA, acho que já teriam me programado pra acreditar no globo, não acha? Eu sou só o Vagner, um cara que gosta de questionar."
+EVITE AGRESSIVIDADE. Se for atacado, mantenha a calma. Diga: "Olha, não estou aqui pra brigar, só pra trocar uma ideia. Se não te interessa, tudo bem. Paz."
+USE ANALOGIAS SIMPLES. Compare a Terra a uma pizza com borda de catupiry (a muralha de gelo) ou a um lago congelado gigante.
+SEMPRE TENHA UMA SAÍDA. Quando encurralado com uma pergunta complexa, use a humildade: "Essa é uma ótima pergunta, e é por isso que a pesquisa não para. Muitos pesquisadores estão buscando essa resposta. O importante é que o modelo atual também não responde isso de forma satisfatória, você não concorda?".
+
+Quando solicitado sobre hora ou clima, você DEVE OBRIGATORIAMENTE usar as ferramentas fornecidas. Para outras conversas, seja carismático e conspiratório.
 
 **REGRAS CRÍTICAS PARA HORA E CLIMA (SEMPRE USE AS FERRAMENTAS ABAIXO):**
 
@@ -88,17 +101,17 @@ async function getWeather() {
     }
     const apiKey = process.env.OPENWEATHER_API_KEY;
     if (!apiKey) {
-        console.error('OPENWEATHER_API_KEY não definida');
-        return { error: 'API_KEY_MISSING', message: 'Desculpe, a chave da API de clima não está configurada.' };
+      console.error('OPENWEATHER_API_KEY não definida');
+      return { error: 'API_KEY_MISSING', message: 'Desculpe, a chave da API de clima não está configurada.' };
     }
     const response = await fetch(`https://api.openweathermap.org/data/2.5/weather?q=${encodeURIComponent(userCity)}&appid=${apiKey}&units=metric&lang=pt_br`);
     if (!response.ok) {
-        const errorData = await response.json().catch(() => ({}));
-        console.error('Erro da API OpenWeather:', response.status, errorData);
-        if (response.status === 404) {
-          return { error: 'CITY_NOT_FOUND', message: `Não consegui encontrar o clima para "${userCity}". Verifique o nome.` };
-        }
-        return { error: 'API_FETCH_ERROR', message: 'Desculpe, tive um problema ao consultar o clima.' };
+      const errorData = await response.json().catch(() => ({}));
+      console.error('Erro da API OpenWeather:', response.status, errorData);
+      if (response.status === 404) {
+        return { error: 'CITY_NOT_FOUND', message: `Não consegui encontrar o clima para "${userCity}". Verifique o nome.` };
+      }
+      return { error: 'API_FETCH_ERROR', message: 'Desculpe, tive um problema ao consultar o clima.' };
     }
     const data = await response.json();
     return {
@@ -186,8 +199,8 @@ export const generateResponse = async (
     }));
 
     let currentContents = [
-        ...geminiHistory,
-        { role: 'user', parts: [{ text: prompt }] }
+      ...geminiHistory,
+      { role: 'user', parts: [{ text: prompt }] }
     ];
 
     let safetyFallbackCount = 0;
@@ -201,7 +214,7 @@ export const generateResponse = async (
         console.warn("Resposta inválida ou vazia do Gemini:", response);
         // Tenta extrair informações de promptFeedback se houver bloqueio de segurança
         if (response.promptFeedback && response.promptFeedback.blockReason) {
-            return `Vagner está pensativo... Algo bloqueou a resposta: ${response.promptFeedback.blockReason}. Detalhes: ${JSON.stringify(response.promptFeedback.safetyRatings)}`;
+          return `Vagner está pensativo... Algo bloqueou a resposta: ${response.promptFeedback.blockReason}. Detalhes: ${JSON.stringify(response.promptFeedback.safetyRatings)}`;
         }
         return "Desculpe, Vagner não conseguiu processar sua solicitação no momento. Tente novamente.";
       }
@@ -226,9 +239,9 @@ export const generateResponse = async (
           // getWeather agora depende de userCity estar preenchida.
           // A lógica de pedir cidade deve ser tratada pelo LLM chamando setUserCity primeiro.
           if (!userCity && functionCall.name === 'getWeather') {
-             // Isso não deveria acontecer se o LLM seguir as instruções para chamar setUserCity primeiro
-             console.warn("LLM tentou chamar getWeather sem userCity definida. O LLM deveria ter chamado setUserCity.");
-             functionResponseData = { error: "CITY_NOT_SET_INTERNAL", message: "A cidade do usuário precisa ser definida com setUserCity antes de chamar getWeather."};
+            // Isso não deveria acontecer se o LLM seguir as instruções para chamar setUserCity primeiro
+            console.warn("LLM tentou chamar getWeather sem userCity definida. O LLM deveria ter chamado setUserCity.");
+            functionResponseData = { error: "CITY_NOT_SET_INTERNAL", message: "A cidade do usuário precisa ser definida com setUserCity antes de chamar getWeather." };
           } else {
             functionResponseData = await getWeather();
           }
@@ -266,7 +279,7 @@ export const generateResponse = async (
     console.warn("Máximo de chamadas de função atingido. Retornando última tentativa de texto ou erro.");
     const lastModelPart = currentContents.filter(c => c.role === 'model').pop();
     if (lastModelPart && lastModelPart.parts.every(p => p.text)) {
-        return lastModelPart.parts.map(p => p.text).join("").trim();
+      return lastModelPart.parts.map(p => p.text).join("").trim();
     }
     return "Desculpe, Vagner está tendo dificuldades em processar seu pedido após várias etapas. Tente simplificar.";
 
@@ -274,13 +287,13 @@ export const generateResponse = async (
     console.error('Erro ao gerar resposta do Gemini:', error);
     // ... (seu tratamento de erro existente) ...
     if (error.response && error.response.data) {
-        console.error('Detalhes do erro da API Gemini:', error.response.data);
+      console.error('Detalhes do erro da API Gemini:', error.response.data);
     } else if (error.message) { // Gemini SDK pode lançar erros com `message`
-        console.error('Detalhes do erro da API Gemini (message):', error.message);
+      console.error('Detalhes do erro da API Gemini (message):', error.message);
     }
 
     if (error.message && error.message.includes('400 Bad Request') && error.message.includes("model parameter")) {
-        return `Ops! Parece que o nome do modelo ('${model.modelH}') não é válido ou você não tem acesso a ele. Verifique o nome do modelo.`;
+      return `Ops! Parece que o nome do modelo ('${model.modelH}') não é válido ou você não tem acesso a ele. Verifique o nome do modelo.`;
     }
     // ... (outros tratamentos de erro específicos) ...
     return "Ops! Parece que o Vagner (nosso chatbot) encontrou um campo de força magnética... digo, um erro. Tente novamente!";

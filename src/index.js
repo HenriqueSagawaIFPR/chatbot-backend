@@ -3,8 +3,11 @@ import cors from 'cors';
 import dotenv from 'dotenv';
 import connectDB, { connectLogDB } from './config/db.js'; 
 import Chat from './models/Chat.js'; 
+import User from './models/User.js';
 import { generateResponse } from './lib/gemini.js';
 import logService from './services/logService.js';
+import authService from './services/authService.js';
+import { authenticateToken, optionalAuth } from './middleware/auth.js';
 
 // Carrega as variáveis de ambiente
 dotenv.config();
@@ -34,10 +37,89 @@ app.get('/', (req, res) => {
   res.json({ message: 'API do Chatbot Terra Plana está funcionando!' });
 });
 
-// Rota GET /api/chats - Listar todas as conversas (apenas ID e título)
-app.get('/api/chats', async (req, res) => {
+// ===== ROTAS DE AUTENTICAÇÃO =====
+
+// POST /api/auth/register - Registrar novo usuário
+app.post('/api/auth/register', async (req, res) => {
   try {
-    const chats = await Chat.find().select('_id title createdAt updatedAt').sort({ updatedAt: -1 });
+    const { username, email, password } = req.body;
+
+    if (!username || !email || !password) {
+      return res.status(400).json({ error: 'Username, email e senha são obrigatórios' });
+    }
+
+    const result = await authService.registerUser({ username, email, password });
+    res.status(201).json(result);
+  } catch (error) {
+    console.error('Erro no registro:', error);
+    res.status(400).json({ error: error.message });
+  }
+});
+
+// POST /api/auth/login - Fazer login
+app.post('/api/auth/login', async (req, res) => {
+  try {
+    const { username, password } = req.body;
+
+    if (!username || !password) {
+      return res.status(400).json({ error: 'Username/email e senha são obrigatórios' });
+    }
+
+    const result = await authService.loginUser({ username, password });
+    res.json(result);
+  } catch (error) {
+    console.error('Erro no login:', error);
+    res.status(401).json({ error: error.message });
+  }
+});
+
+// GET /api/auth/me - Obter dados do usuário logado
+app.get('/api/auth/me', authenticateToken, async (req, res) => {
+  try {
+    res.json({ user: req.user });
+  } catch (error) {
+    console.error('Erro ao buscar usuário:', error);
+    res.status(500).json({ error: 'Erro interno do servidor' });
+  }
+});
+
+// PUT /api/auth/profile - Atualizar perfil do usuário
+app.put('/api/auth/profile', authenticateToken, async (req, res) => {
+  try {
+    const { username } = req.body;
+    const updatedUser = await authService.updateUser(req.user._id, { username });
+    res.json({ user: updatedUser });
+  } catch (error) {
+    console.error('Erro ao atualizar perfil:', error);
+    res.status(400).json({ error: error.message });
+  }
+});
+
+// POST /api/auth/change-password - Alterar senha
+app.post('/api/auth/change-password', authenticateToken, async (req, res) => {
+  try {
+    const { currentPassword, newPassword } = req.body;
+
+    if (!currentPassword || !newPassword) {
+      return res.status(400).json({ error: 'Senha atual e nova senha são obrigatórias' });
+    }
+
+    await authService.changePassword(req.user._id, currentPassword, newPassword);
+    res.json({ message: 'Senha alterada com sucesso' });
+  } catch (error) {
+    console.error('Erro ao alterar senha:', error);
+    res.status(400).json({ error: error.message });
+  }
+});
+
+// ===== ROTAS DE CHAT MODIFICADAS =====
+
+// Rota GET /api/chats - Listar conversas do usuário autenticado
+app.get('/api/chats', authenticateToken, async (req, res) => {
+  try {
+    const chats = await Chat.find({ userId: req.user._id })
+      .select('_id title createdAt updatedAt')
+      .sort({ updatedAt: -1 });
     res.json(chats);
   } catch (error) {
     console.error('Erro ao buscar chats:', error);
@@ -45,10 +127,10 @@ app.get('/api/chats', async (req, res) => {
   }
 });
 
-// Rota GET /api/chats/:id - Buscar uma conversa específica com mensagens
-app.get('/api/chats/:id', async (req, res) => {
+// Rota GET /api/chats/:id - Buscar uma conversa específica do usuário
+app.get('/api/chats/:id', authenticateToken, async (req, res) => {
   try {
-    const chat = await Chat.findById(req.params.id);
+    const chat = await Chat.findOne({ _id: req.params.id, userId: req.user._id });
     if (!chat) {
       return res.status(404).json({ error: 'Chat não encontrado' });
     }
@@ -63,10 +145,10 @@ app.get('/api/chats/:id', async (req, res) => {
   }
 });
 
-// Rota DELETE /api/chats/:id - Excluir uma conversa específica
-app.delete('/api/chats/:id', async (req, res) => {
+// Rota DELETE /api/chats/:id - Excluir uma conversa específica do usuário
+app.delete('/api/chats/:id', authenticateToken, async (req, res) => {
   try {
-    const deleted = await Chat.findByIdAndDelete(req.params.id);
+    const deleted = await Chat.findOneAndDelete({ _id: req.params.id, userId: req.user._id });
     if (!deleted) {
       return res.status(404).json({ error: 'Chat não encontrado' });
     }
@@ -80,15 +162,15 @@ app.delete('/api/chats/:id', async (req, res) => {
   }
 });
 
-// Rota PUT /api/chats/:id/title - Atualizar o título de uma conversa
-app.put('/api/chats/:id/title', async (req, res) => {
+// Rota PUT /api/chats/:id/title - Atualizar o título de uma conversa do usuário
+app.put('/api/chats/:id/title', authenticateToken, async (req, res) => {
   try {
     const { title } = req.body;
     if (!title || !title.trim()) {
       return res.status(400).json({ error: 'Título é obrigatório' });
     }
 
-    const chat = await Chat.findById(req.params.id);
+    const chat = await Chat.findOne({ _id: req.params.id, userId: req.user._id });
     if (!chat) {
       return res.status(404).json({ error: 'Chat não encontrado' });
     }
@@ -111,10 +193,10 @@ app.put('/api/chats/:id/title', async (req, res) => {
   }
 });
 
-// Rota POST /api/chats/:id/suggest-title - Gera um título por IA e salva no chat
-app.post('/api/chats/:id/suggest-title', async (req, res) => {
+// Rota POST /api/chats/:id/suggest-title - Gera um título por IA e salva no chat do usuário
+app.post('/api/chats/:id/suggest-title', authenticateToken, async (req, res) => {
   try {
-    const chat = await Chat.findById(req.params.id);
+    const chat = await Chat.findOne({ _id: req.params.id, userId: req.user._id });
     if (!chat) {
       return res.status(404).json({ error: 'Chat não encontrado' });
     }
@@ -160,7 +242,7 @@ Transcrição (resumida):\n${transcript}\n\nResponda com APENAS o título.`;
 });
 
 // Rota POST /api/chat - Processar mensagem (criar novo chat ou adicionar a existente)
-app.post('/api/chat', async (req, res) => {
+app.post('/api/chat', optionalAuth, async (req, res) => {
   const startTime = Date.now();
   let chatId = null;
   
@@ -171,14 +253,21 @@ app.post('/api/chat', async (req, res) => {
       return res.status(400).json({ error: 'Mensagem é obrigatória' });
     }
 
+    // Verificar limite de mensagens para usuários não logados
+    if (!req.user) {
+      // Para usuários não logados, sempre criar novo chat
+      // O limite é implementado no frontend para simplicidade
+      // Aqui apenas garantimos que sempre será um novo chat
+    }
+
     let chat;
     let historyForGemini = [];
 
     const userMessage = { role: 'user', content: message };
 
-    if (existingChatId) {
-      // Encontrar chat existente
-      chat = await Chat.findById(existingChatId);
+    if (req.user && existingChatId) {
+      // Encontrar chat existente do usuário logado
+      chat = await Chat.findOne({ _id: existingChatId, userId: req.user._id });
       if (!chat) {
         return res.status(404).json({ error: 'Chat não encontrado' });
       }
@@ -188,9 +277,10 @@ app.post('/api/chat', async (req, res) => {
       historyForGemini = chat.messages.map(msg => ({ role: msg.role, content: msg.content }));
       chatId = existingChatId;
     } else {
-      // Criar novo chat
+      // Criar novo chat (para usuários não logados ou quando não há chatId)
       const title = message.substring(0, 30) + (message.length > 30 ? '...' : ''); // Título inicial
       chat = new Chat({
+        userId: req.user ? req.user._id : null,
         title: title,
         messages: [userMessage]
       });
