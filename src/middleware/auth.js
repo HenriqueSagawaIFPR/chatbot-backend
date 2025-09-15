@@ -55,3 +55,21 @@ export const optionalAuth = async (req, res, next) => {
     next();
   }
 };
+
+// Middleware para autorizar por função/role (ex.: 'admin')
+export const authorizeRole = (requiredRole) => {
+  return (req, res, next) => {
+    try {
+      if (!req.user) {
+        return res.status(401).json({ error: 'Não autenticado' });
+      }
+      if (req.user.role !== requiredRole) {
+        return res.status(403).json({ error: 'Acesso negado' });
+      }
+      next();
+    } catch (error) {
+      console.error('Erro na autorização por role:', error);
+      return res.status(500).json({ error: 'Erro interno na autorização' });
+    }
+  };
+};

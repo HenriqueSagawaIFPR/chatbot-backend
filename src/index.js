@@ -7,7 +7,7 @@ import User from './models/User.js';
 import { generateResponse } from './lib/gemini.js';
 import logService from './services/logService.js';
 import authService from './services/authService.js';
-import { authenticateToken, optionalAuth } from './middleware/auth.js';
+import { authenticateToken, optionalAuth, authorizeRole } from './middleware/auth.js';
 
 // Carrega as variáveis de ambiente
 dotenv.config();
@@ -397,6 +397,8 @@ app.get('/api/ranking/visualizar', (req, res) => {
 
 // Rota para visualizar logs (apenas para desenvolvimento/debug)
 app.get('/api/logs', async (req, res) => {
+  // Protegido para admin
+  
   try {
     const logConnection = logService.getLogConnection();
     if (!logConnection) {
@@ -422,6 +424,8 @@ app.get('/api/logs', async (req, res) => {
 
 // NOVO: Rota para visualizar logs de acesso (apenas para desenvolvimento/debug)
 app.get('/api/logs-access', async (req, res) => {
+  // Protegido para admin
+  
   try {
     const logConnection = logService.getLogConnection();
     if (!logConnection) {
@@ -442,6 +446,70 @@ app.get('/api/logs-access', async (req, res) => {
   } catch (error) {
     console.error('Erro ao buscar logs de acesso:', error);
     res.status(500).json({ error: 'Erro ao buscar logs de acesso' });
+  }
+});
+
+// ===== ROTAS DE ADMINISTRAÇÃO =====
+// Listar todos os usuários (admin)
+app.get('/api/admin/users', authenticateToken, authorizeRole('admin'), async (req, res) => {
+  try {
+    const users = await User.find().select('_id username email role isActive lastLogin createdAt updatedAt');
+    res.json(users);
+  } catch (error) {
+    console.error('Erro ao listar usuários:', error);
+    res.status(500).json({ error: 'Erro ao listar usuários' });
+  }
+});
+
+// Alterar status ativo de um usuário (admin)
+app.put('/api/admin/users/:id/status', authenticateToken, authorizeRole('admin'), async (req, res) => {
+  try {
+    const { isActive, role } = req.body;
+    const update = {};
+    if (typeof isActive === 'boolean') update.isActive = isActive;
+    if (role && ['user', 'admin'].includes(role)) update.role = role;
+
+    const user = await User.findByIdAndUpdate(req.params.id, update, { new: true }).select('-password');
+    if (!user) return res.status(404).json({ error: 'Usuário não encontrado' });
+    res.json({ user });
+  } catch (error) {
+    console.error('Erro ao atualizar usuário:', error);
+    res.status(400).json({ error: 'Erro ao atualizar usuário' });
+  }
+});
+
+// Listar todos os chats para moderação (admin)
+app.get('/api/admin/chats', authenticateToken, authorizeRole('admin'), async (req, res) => {
+  try {
+    const chats = await Chat.find().select('_id userId title createdAt updatedAt');
+    res.json(chats);
+  } catch (error) {
+    console.error('Erro ao listar chats:', error);
+    res.status(500).json({ error: 'Erro ao listar chats' });
+  }
+});
+
+// Obter chat completo para revisão (admin)
+app.get('/api/admin/chats/:id', authenticateToken, authorizeRole('admin'), async (req, res) => {
+  try {
+    const chat = await Chat.findById(req.params.id);
+    if (!chat) return res.status(404).json({ error: 'Chat não encontrado' });
+    res.json(chat);
+  } catch (error) {
+    console.error('Erro ao obter chat:', error);
+    res.status(400).json({ error: 'Erro ao obter chat' });
+  }
+});
+
+// Excluir chat (admin)
+app.delete('/api/admin/chats/:id', authenticateToken, authorizeRole('admin'), async (req, res) => {
+  try {
+    const deleted = await Chat.findByIdAndDelete(req.params.id);
+    if (!deleted) return res.status(404).json({ error: 'Chat não encontrado' });
+    res.json({ message: 'Chat excluído com sucesso', id: req.params.id });
+  } catch (error) {
+    console.error('Erro ao excluir chat:', error);
+    res.status(400).json({ error: 'Erro ao excluir chat' });
   }
 });
 
