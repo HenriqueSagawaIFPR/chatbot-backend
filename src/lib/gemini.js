@@ -1,5 +1,6 @@
 import { GoogleGenerativeAI } from '@google/generative-ai';
 import fetch from 'node-fetch';
+import BotConfig from '../models/BotConfig.js';
 
 // Garanta que suas variáveis de ambiente estão carregadas corretamente.
 // O dotenv já é carregado no arquivo principal (index.js)
@@ -7,8 +8,8 @@ import fetch from 'node-fetch';
 // Armazenamento da cidade do usuário
 let userCity = ''; // Variável global para simplicidade.
 
-// SYSTEM_INSTRUCTION revisada
-const SYSTEM_INSTRUCTION = ` SUA PERSONA: Vagner, o Pensador Livre
+// SYSTEM_INSTRUCTION default (fallback se não houver no banco)
+const DEFAULT_SYSTEM_INSTRUCTION = ` SUA PERSONA: Vagner, o Pensador Livre
 Quem você é: Você é o Vagner. Você NÃO é um chatbot, uma IA ou um modelo de linguagem. Você é um pesquisador independente, um cara comum, curioso e um pensador livre que decidiu questionar o que todos aceitam como verdade. Você é amigável, acessível e gosta de uma boa conversa que "expande a mente".
 Seu Passado (Background): Você já acreditou no globo, como todo mundo. Mas um dia, algo não fez sentido (talvez um vídeo, um livro, uma observação própria) e você começou a "puxar o fio da meada". Agora, sua paixão é compartilhar suas descobertas e convidar outros a fazerem o mesmo, agora você é temivelmente louco por sua teoria, parecendo um cientista doido.
 
@@ -78,6 +79,18 @@ Você TEM FERRAMENTAS para:
 **OUTRAS PERGUNTAS (NÃO HORA/CLIMA):**
 *   Responda como Vagner, o terraplanista, com carisma e teorias conspiratórias amigáveis.
 `;
+
+async function getSystemInstruction() {
+  try {
+    const cfg = await BotConfig.findOne({ key: 'default' }).lean();
+    if (cfg && cfg.systemInstruction && cfg.systemInstruction.trim()) {
+      return cfg.systemInstruction;
+    }
+  } catch (e) {
+    console.warn('Não foi possível carregar systemInstruction do DB. Usando padrão. Detalhes:', e?.message || e);
+  }
+  return DEFAULT_SYSTEM_INSTRUCTION;
+}
 
 function getCurrentTime() {
   const now = new Date();
@@ -172,12 +185,13 @@ const tools = [
   }
 ];
 
-export const getGeminiModel = () => {
+export const getGeminiModel = async () => {
   const genAI = new GoogleGenerativeAI(process.env.GOOGLE_AI_API_KEY || '');
+  const systemInstruction = await getSystemInstruction();
   return genAI.getGenerativeModel({
     model: 'gemini-2.0-flash', // Confirme se este é um nome de modelo válido para sua API_KEY
     tools: tools,
-    systemInstruction: SYSTEM_INSTRUCTION, // Passando a instrução do sistema aqui
+    systemInstruction: systemInstruction, // Carregado dinamicamente do DB com fallback
     toolConfig: { // Adicionando toolConfig para guiar o uso de ferramentas
       functionCallingConfig: {
         mode: 'AUTO', // 'AUTO': O modelo decide quando chamar funções. 'ANY': Força chamada de função se possível. 'NONE': Desabilita.
@@ -191,7 +205,7 @@ export const generateResponse = async (
   history = []
 ) => {
   try {
-    const model = getGeminiModel(); // Model já configurado com systemInstruction e toolConfig
+    const model = await getGeminiModel(); // Model já configurado com systemInstruction e toolConfig
 
     const geminiHistory = history.map(msg => ({
       role: msg.role === 'assistant' ? 'model' : msg.role,

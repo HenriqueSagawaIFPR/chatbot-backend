@@ -5,6 +5,7 @@ import connectDB, { connectLogDB } from './config/db.js';
 import Chat from './models/Chat.js'; 
 import User from './models/User.js';
 import { generateResponse } from './lib/gemini.js';
+import BotConfig from './models/BotConfig.js';
 import logService from './services/logService.js';
 import authService from './services/authService.js';
 import { authenticateToken, optionalAuth, authorizeRole } from './middleware/auth.js';
@@ -510,6 +511,40 @@ app.delete('/api/admin/chats/:id', authenticateToken, authorizeRole('admin'), as
   } catch (error) {
     console.error('Erro ao excluir chat:', error);
     res.status(400).json({ error: 'Erro ao excluir chat' });
+  }
+});
+
+// Configuração do Bot (admin)
+// GET /api/admin/bot-config - obter personalidade/instrução atual
+app.get('/api/admin/bot-config', authenticateToken, authorizeRole('admin'), async (req, res) => {
+  try {
+    const cfg = await BotConfig.findOne({ key: 'default' });
+    if (!cfg) {
+      return res.json({ key: 'default', systemInstruction: '' });
+    }
+    res.json({ key: cfg.key, systemInstruction: cfg.systemInstruction, updatedAt: cfg.updatedAt });
+  } catch (error) {
+    console.error('Erro ao obter bot-config:', error);
+    res.status(500).json({ error: 'Erro ao obter configuração do bot' });
+  }
+});
+
+// PUT /api/admin/bot-config - atualizar personalidade/instrução
+app.put('/api/admin/bot-config', authenticateToken, authorizeRole('admin'), async (req, res) => {
+  try {
+    const { systemInstruction } = req.body;
+    if (typeof systemInstruction !== 'string' || !systemInstruction.trim()) {
+      return res.status(400).json({ error: 'systemInstruction é obrigatório' });
+    }
+    const updated = await BotConfig.findOneAndUpdate(
+      { key: 'default' },
+      { key: 'default', systemInstruction: systemInstruction.trim(), updatedAt: new Date() },
+      { new: true, upsert: true }
+    );
+    res.json({ key: updated.key, systemInstruction: updated.systemInstruction, updatedAt: updated.updatedAt });
+  } catch (error) {
+    console.error('Erro ao atualizar bot-config:', error);
+    res.status(400).json({ error: 'Erro ao atualizar configuração do bot' });
   }
 });
 
