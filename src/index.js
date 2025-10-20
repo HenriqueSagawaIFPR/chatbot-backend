@@ -462,6 +462,122 @@ app.get('/api/admin/users', authenticateToken, authorizeRole('admin'), async (re
   }
 });
 
+// Analytics (admin)
+app.get('/api/admin/analytics', authenticateToken, authorizeRole('admin'), async (req, res) => {
+  try {
+    const [totalUsers, activeUsers, adminUsers, totalChats] = await Promise.all([
+      User.countDocuments(),
+      User.countDocuments({ isActive: true }),
+      User.countDocuments({ role: 'admin' }),
+      Chat.countDocuments()
+    ]);
+
+    // Total de mensagens
+    const messagesAggregation = await Chat.aggregate([
+      { $project: { messagesCount: { $size: { $ifNull: ['$messages', []] } } } },
+      { $group: { _id: null, totalMessages: { $sum: '$messagesCount' } } }
+    ]);
+    const totalMessages = messagesAggregation[0]?.totalMessages || 0;
+    const avgMessagesPerChat = totalChats > 0 ? Number((totalMessages / totalChats).toFixed(2)) : 0;
+
+    // Últimos 7 dias - chats por dia
+    const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+    const chatsPerDay = await Chat.aggregate([
+      { $match: { createdAt: { $gte: sevenDaysAgo } } },
+      { $group: { _id: { $dateToString: { format: '%Y-%m-%d', date: '$createdAt' } }, count: { $sum: 1 } } },
+      { $sort: { _id: 1 } }
+    ]);
+
+    // Últimos 7 dias - mensagens por dia (unwind)
+    const messagesPerDay = await Chat.aggregate([
+      { $unwind: '$messages' },
+      { $match: { 'messages.timestamp': { $gte: sevenDaysAgo } } },
+      { $group: { _id: { $dateToString: { format: '%Y-%m-%d', date: '$messages.timestamp' } }, count: { $sum: 1 } } },
+      { $sort: { _id: 1 } }
+    ]);
+
+    // Métricas a partir dos logs (se disponíveis)
+    const LogModel = logService.getLogModel();
+    let responseTime = { avgMs: 0, p95Ms: 0 };
+    let errorsLast7Days = 0;
+    if (LogModel) {
+      const stats = await LogModel.aggregate([
+        { $match: { timestamp: { $gte: sevenDaysAgo }, processingTime: { $gt: 0 } } },
+        { $project: { processingTime: 1 } },
+        { $group: { _id: null, avg: { $avg: '$processingTime' } } }
+      ]);
+      const avgMs = stats[0]?.avg || 0;
+      // p95
+      const p95Agg = await LogModel.aggregate([
+        { $match: { timestamp: { $gte: sevenDaysAgo }, processingTime: { $gt: 0 } } },
+        { $sort: { processingTime: 1 } },
+        { $group: { _id: null, list: { $push: '$processingTime' } } },
+        { $project: { p95: { $arrayElemAt: ['$list', { $floor: { $multiply: [0.95, { $size: '$list' }] } }] } } }
+      ]);
+      const p95Ms = p95Agg[0]?.p95 || 0;
+      responseTime = { avgMs: Math.round(avgMs), p95Ms: Math.round(p95Ms) };
+
+      errorsLast7Days = await LogModel.countDocuments({ timestamp: { $gte: sevenDaysAgo }, status: 'error' });
+    }
+
+    // Acessos por dia (se modelo existir)
+    const AccessModel = logService.getUserLogAccessModel();
+    let accessesPerDay = [];
+    if (AccessModel) {
+      accessesPerDay = await AccessModel.aggregate([
+        { $match: { col_data: { $gte: sevenDaysAgo.toISOString().slice(0, 10) } } },
+        { $group: { _id: '$col_data', count: { $sum: 1 } } },
+        { $sort: { _id: 1 } }
+      ]);
+    }
+
+    res.json({
+      users: { total: totalUsers, active: activeUsers, admins: adminUsers },
+      chats: { total: totalChats, totalMessages, avgMessagesPerChat },
+      timeseries: { chatsPerDay, messagesPerDay, accessesPerDay },
+      performance: responseTime,
+      errors: { last7Days: errorsLast7Days }
+    });
+  } catch (error) {
+    console.error('Erro ao obter analytics:', error);
+    res.status(500).json({ error: 'Erro ao obter analytics' });
+  }
+});
+
+// Logs (admin) - últimos 200
+app.get('/api/admin/logs', authenticateToken, authorizeRole('admin'), async (req, res) => {
+  try {
+    const LogModel = logService.getLogModel();
+    if (!LogModel) return res.status(500).json({ error: 'Modelo de log não disponível' });
+    const limit = Math.min(parseInt(req.query.limit || '200', 10), 1000);
+    const logs = await LogModel.find()
+      .sort({ timestamp: -1 })
+      .limit(limit)
+      .select('botName userName message response messageType timestamp processingTime status errorMessage ipAddress');
+    res.json(logs);
+  } catch (error) {
+    console.error('Erro ao obter logs:', error);
+    res.status(500).json({ error: 'Erro ao obter logs' });
+  }
+});
+
+// Logs de acesso (admin) - últimos 200
+app.get('/api/admin/access-logs', authenticateToken, authorizeRole('admin'), async (req, res) => {
+  try {
+    const AccessModel = logService.getUserLogAccessModel();
+    if (!AccessModel) return res.status(500).json({ error: 'Modelo de log de acesso não disponível' });
+    const limit = Math.min(parseInt(req.query.limit || '200', 10), 1000);
+    const logs = await AccessModel.find()
+      .sort({ col_data: -1, col_hora: -1 })
+      .limit(limit)
+      .select('col_data col_hora col_IP col_nome_bot col_acao');
+    res.json(logs);
+  } catch (error) {
+    console.error('Erro ao obter logs de acesso:', error);
+    res.status(500).json({ error: 'Erro ao obter logs de acesso' });
+  }
+});
+
 // Alterar status ativo de um usuário (admin)
 app.put('/api/admin/users/:id/status', authenticateToken, authorizeRole('admin'), async (req, res) => {
   try {
