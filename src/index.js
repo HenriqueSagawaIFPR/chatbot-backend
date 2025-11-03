@@ -6,6 +6,7 @@ import Chat from './models/Chat.js';
 import User from './models/User.js';
 import { generateResponse } from './lib/gemini.js';
 import BotConfig from './models/BotConfig.js';
+import UserConfig from './models/UserConfig.js';
 import logService from './services/logService.js';
 import authService from './services/authService.js';
 import { authenticateToken, optionalAuth, authorizeRole } from './middleware/auth.js';
@@ -297,7 +298,7 @@ app.post('/api/chat', optionalAuth, async (req, res) => {
     await logService.logUserAccess(requestInfo.ipAddress, 'acessou_chatbot', 'Vagner Terraplanista');
 
     // Chamar Gemini (removendo a última mensagem do usuário do histórico passado, pois ela é o 'message' atual)
-    const responseText = await generateResponse(message, historyForGemini.slice(0, -1)); 
+    const responseText = await generateResponse(message, historyForGemini.slice(0, -1), req.user ? req.user._id : null); 
 
     const botMessage = { role: 'assistant', content: responseText };
     chat.messages.push(botMessage);
@@ -661,6 +662,40 @@ app.put('/api/admin/bot-config', authenticateToken, authorizeRole('admin'), asyn
   } catch (error) {
     console.error('Erro ao atualizar bot-config:', error);
     res.status(400).json({ error: 'Erro ao atualizar configuração do bot' });
+  }
+});
+
+// Configuração do Bot por Usuário
+// GET /api/user/bot-config - obter systemInstruction do usuário (sobrepõe a global)
+app.get('/api/user/bot-config', authenticateToken, async (req, res) => {
+  try {
+    const cfg = await UserConfig.findOne({ userId: req.user._id });
+    if (!cfg) {
+      return res.json({ userId: req.user._id, systemInstruction: '' });
+    }
+    res.json({ userId: cfg.userId, systemInstruction: cfg.systemInstruction, updatedAt: cfg.updatedAt });
+  } catch (error) {
+    console.error('Erro ao obter user bot-config:', error);
+    res.status(500).json({ error: 'Erro ao obter configuração do usuário' });
+  }
+});
+
+// PUT /api/user/bot-config - atualizar systemInstruction do usuário
+app.put('/api/user/bot-config', authenticateToken, async (req, res) => {
+  try {
+    const { systemInstruction } = req.body;
+    if (typeof systemInstruction !== 'string') {
+      return res.status(400).json({ error: 'systemInstruction deve ser string' });
+    }
+    const updated = await UserConfig.findOneAndUpdate(
+      { userId: req.user._id },
+      { userId: req.user._id, systemInstruction: systemInstruction, updatedAt: new Date() },
+      { new: true, upsert: true }
+    );
+    res.json({ userId: updated.userId, systemInstruction: updated.systemInstruction, updatedAt: updated.updatedAt });
+  } catch (error) {
+    console.error('Erro ao atualizar user bot-config:', error);
+    res.status(400).json({ error: 'Erro ao atualizar configuração do usuário' });
   }
 });
 

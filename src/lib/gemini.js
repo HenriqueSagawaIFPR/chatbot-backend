@@ -1,6 +1,7 @@
 import { GoogleGenerativeAI } from '@google/generative-ai';
 import fetch from 'node-fetch';
 import BotConfig from '../models/BotConfig.js';
+import UserConfig from '../models/UserConfig.js';
 
 // Garanta que suas variáveis de ambiente estão carregadas corretamente.
 // O dotenv já é carregado no arquivo principal (index.js)
@@ -80,8 +81,16 @@ Você TEM FERRAMENTAS para:
 *   Responda como Vagner, o terraplanista, com carisma e teorias conspiratórias amigáveis.
 `;
 
-async function getSystemInstruction() {
+async function getSystemInstruction(userId) {
   try {
+    // 1) Tenta instrução específica do usuário
+    if (userId) {
+      const userCfg = await UserConfig.findOne({ userId }).lean();
+      if (userCfg && typeof userCfg.systemInstruction === 'string' && userCfg.systemInstruction.trim()) {
+        return userCfg.systemInstruction;
+      }
+    }
+    // 2) Fallback para instrução global do admin
     const cfg = await BotConfig.findOne({ key: 'default' }).lean();
     if (cfg && cfg.systemInstruction && cfg.systemInstruction.trim()) {
       return cfg.systemInstruction;
@@ -185,13 +194,23 @@ const tools = [
   }
 ];
 
-export const getGeminiModel = async () => {
+export const getGeminiModel = async (userId) => {
   const genAI = new GoogleGenerativeAI(process.env.GOOGLE_AI_API_KEY || '');
-  const systemInstruction = await getSystemInstruction();
+  const systemInstruction = await getSystemInstruction(userId);
+  // Log diagnóstico: mostra um trecho da instrução do sistema atualmente carregada
+  try {
+    const preview = (systemInstruction || '').slice(0, 120).replace(/\n/g, ' ');
+    console.log(`[Gemini] systemInstruction carregada (${(systemInstruction || '').length} chars):`, preview, '...');
+  } catch {}
+
+  const modelName = process.env.GEMINI_MODEL || 'gemini-2.0-flash';
+  console.log(`[Gemini] Usando modelo: ${modelName}`);
+
   return genAI.getGenerativeModel({
-    model: 'gemini-2.0-flash', // Confirme se este é um nome de modelo válido para sua API_KEY
+    model: modelName,
     tools: tools,
-    systemInstruction: systemInstruction, // Carregado dinamicamente do DB com fallback
+    // Envia a systemInstruction como string para compatibilidade com modelos 2.0
+    systemInstruction: systemInstruction,
     toolConfig: { // Adicionando toolConfig para guiar o uso de ferramentas
       functionCallingConfig: {
         mode: 'AUTO', // 'AUTO': O modelo decide quando chamar funções. 'ANY': Força chamada de função se possível. 'NONE': Desabilita.
@@ -202,10 +221,13 @@ export const getGeminiModel = async () => {
 
 export const generateResponse = async (
   prompt,
-  history = []
+  history = [],
+  userId = null
 ) => {
   try {
-    const model = await getGeminiModel(); // Model já configurado com systemInstruction e toolConfig
+    const model = await getGeminiModel(userId); // Model já configurado com systemInstruction e toolConfig
+    // Reforça a persona também por requisição (alguns modelos respeitam melhor por-call)
+    const systemInstruction = await getSystemInstruction(userId);
 
     const geminiHistory = history.map(msg => ({
       role: msg.role === 'assistant' ? 'model' : msg.role,
@@ -221,7 +243,7 @@ export const generateResponse = async (
     const MAX_FALLBACKS = 5; // Limite de interações LLM-ferramenta por turno do usuário
 
     while (safetyFallbackCount < MAX_FALLBACKS) {
-      const result = await model.generateContent({ contents: currentContents });
+      const result = await model.generateContent({ contents: currentContents, systemInstruction });
       const response = result.response;
 
       if (!response.candidates || response.candidates.length === 0 || !response.candidates[0].content) {
