@@ -194,9 +194,12 @@ const tools = [
   }
 ];
 
-export const getGeminiModel = async (userId) => {
+export const getGeminiModel = async (userId, options = {}) => {
   const genAI = new GoogleGenerativeAI(process.env.GOOGLE_AI_API_KEY || '');
-  const systemInstruction = await getSystemInstruction(userId);
+  const systemInstruction =
+    typeof options.systemInstruction === 'string'
+      ? options.systemInstruction
+      : await getSystemInstruction(userId);
   // Log diagnóstico: mostra um trecho da instrução do sistema atualmente carregada
   try {
     const preview = (systemInstruction || '').slice(0, 120).replace(/\n/g, ' ');
@@ -225,25 +228,29 @@ export const generateResponse = async (
   userId = null
 ) => {
   try {
-    const model = await getGeminiModel(userId); // Model já configurado com systemInstruction e toolConfig
-    // Reforça a persona também por requisição (alguns modelos respeitam melhor por-call)
     const systemInstruction = await getSystemInstruction(userId);
+    const model = await getGeminiModel(userId, { systemInstruction }); // Model já configurado com systemInstruction e toolConfig
 
     const geminiHistory = history.map(msg => ({
       role: msg.role === 'assistant' ? 'model' : msg.role,
       parts: [{ text: msg.content }]
     }));
 
+    const personaPreface = systemInstruction && systemInstruction.trim()
+      ? `INSTRUÇÃO DO SISTEMA (não responda esta parte, apenas siga fielmente):\n${systemInstruction.trim()}\n\n---\n`
+      : '';
+    const personaPrompt = `${personaPreface}MENSAGEM DO USUÁRIO:\n${prompt}`;
+
     let currentContents = [
       ...geminiHistory,
-      { role: 'user', parts: [{ text: prompt }] }
+      { role: 'user', parts: [{ text: personaPrompt }] }
     ];
 
     let safetyFallbackCount = 0;
     const MAX_FALLBACKS = 5; // Limite de interações LLM-ferramenta por turno do usuário
 
     while (safetyFallbackCount < MAX_FALLBACKS) {
-      const result = await model.generateContent({ contents: currentContents, systemInstruction });
+      const result = await model.generateContent({ contents: currentContents });
       const response = result.response;
 
       if (!response.candidates || response.candidates.length === 0 || !response.candidates[0].content) {
